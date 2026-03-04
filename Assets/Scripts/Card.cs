@@ -10,13 +10,12 @@ public class Card : MonoBehaviour, IPointerClickHandler
 	[SerializeField] Image cardImage, backImage;
 	[SerializeField] GameObject flippedObj, unflippedObj;
 
-	public bool IsFlipped { get; private set; }
+	[SerializeField, HideInInspector] public bool IsFlipped { get; private set; }
+
+	[SerializeField, HideInInspector] Sprite assignedImage;
 
 	public delegate void OnClickEvent(Card card);
 	public OnClickEvent OnClicked;
-
-	Sprite assignedImage;
-	string assignedText;
 
 	private void Awake() {
 		if (cardImage) cardImage.gameObject.SetActive(false);
@@ -50,8 +49,6 @@ public class Card : MonoBehaviour, IPointerClickHandler
 	}
 
 	public bool DoesImageMatch(Sprite sprite) => sprite == assignedImage;
-
-	public bool DoesTextMatch(string text) => text == assignedText;
 
 
 	public void OnPointerClick(PointerEventData eventData) {

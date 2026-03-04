@@ -9,7 +9,7 @@ public class GameManager : MonoBehaviour
 	[SerializeField] List<Sprite> cardSprites;
 	[SerializeField] int gridRowCount, gridColumnCount;
 	[SerializeField] GridLayoutGroup cardGrid;
-	[SerializeField] bool showCardsAtStart;
+	[SerializeField] float initialCardShowTime = 0;
 
 	List<Card> curCards = new List<Card>();
 
@@ -64,12 +64,12 @@ public class GameManager : MonoBehaviour
 		cardGrid.constraintCount = gridColumnCount;
 
 		// Calculate the required cell size
-		var gridRect = cardGrid.GetComponent<RectTransform>();
+		RectTransform gridRect = cardGrid.GetComponent<RectTransform>();
 		yield return null; // Wait one update loop for the grid to initialize to its proper size
 		Vector2 cellSize = gridRect.rect.size;
-		cellSize.x = (cellSize.x / gridColumnCount) - (cardGrid.spacing.x * (gridColumnCount - 1)) - 5f;
-		cellSize.y = (cellSize.y / gridRowCount) - (cardGrid.spacing.y * (gridRowCount - 1)) - 5f; // 5f buffer just in case
-
+		cellSize.x = (cellSize.x / gridColumnCount) - (cardGrid.spacing.x + 5f); // 5f buffer just in case
+		cellSize.y = (cellSize.y / gridRowCount) - (cardGrid.spacing.y + 5f);
+		cardGrid.cellSize = cellSize;
 
 
 		//============ DECIDE WHAT CARDS TO USE ===============
@@ -98,30 +98,37 @@ public class GameManager : MonoBehaviour
 		imageIndicesToUse.Sort((x, y) => Random.value > 0.5f ? 1 : -1);
 
 
-
 		//============ INSTANTIATE THE CARDS ===============
 
 		curCards = new List<Card>();
 
 		// Add a blank card in the middle if the total is odd
 		int addBlankCardAt = cellCountIsOdd ? cardCount / 2 : -1;
+		bool showCardsAtStart = initialCardShowTime > 0;
 
 		for (int i = 0; i < imageIndicesToUse.Count; i++) {
+			if (i == addBlankCardAt) {
+				GameObject blankObj = new GameObject("Blank", typeof(RectTransform));
+				blankObj.transform.parent = cardGrid.transform;
+			}
+
 			Card newCard = Instantiate(cardPrefab, cardGrid.transform);
 			newCard.SetImageSprite(cardSprites[imageIndicesToUse[i]]);
 			newCard.Initialize(showCardsAtStart);
 			newCard.OnClicked += OnCardClicked;
 			curCards.Add(newCard);
+		}
 
-			if (i == addBlankCardAt) {
-				GameObject blankObj = new GameObject("Blank", typeof(RectTransform));
-				blankObj.transform.parent = cardGrid.transform;
-			}
+		// Unflip cards after initial interval
+		if (showCardsAtStart) {
+			yield return new WaitForSeconds(initialCardShowTime);
+			curCards.ForEach(card => card.SetFlippedState(false));
 		}
 	}
 
 
 	void OnCardClicked(Card clickedCard) {
-		if (clickedCard) return;
+		if (!clickedCard) return;
+		print(clickedCard.name + " was clicked");
 	}
 }
