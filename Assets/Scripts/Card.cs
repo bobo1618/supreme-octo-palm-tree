@@ -1,21 +1,28 @@
 using System.Collections;
 using System.Collections.Generic;
-using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.Rendering;
 using UnityEngine.UI;
+
+[System.Serializable]
+public class CardSaveData {
+	public Sprite assignedImage;
+	public bool isFlipped;
+}
 
 public class Card : MonoBehaviour, IPointerClickHandler
 {
 	[SerializeField] Image cardImage, backImage;
 	[SerializeField] GameObject flippedObj, unflippedObj;
 
-	[SerializeField, HideInInspector] public bool IsFlipped { get; private set; }
-
-	[SerializeField, HideInInspector] Sprite assignedImage;
+	public bool IsFlipped => isFlipped;
 
 	public delegate void OnClickEvent(Card card);
 	public OnClickEvent OnClicked;
+
+	Sprite assignedImage;
+	bool isFlipped;
 
 	private void Awake() {
 		if (cardImage) cardImage.gameObject.SetActive(false);
@@ -26,10 +33,16 @@ public class Card : MonoBehaviour, IPointerClickHandler
 		SetFlippedState(startFlipped);
 	}
 
-	public void SetFlippedState(bool isFlipped) {
-		IsFlipped = isFlipped;
-		flippedObj.SetActive(isFlipped);
-		unflippedObj.SetActive(!isFlipped);
+	public void Initialize(string saveDataJson) {
+		CardSaveData saveData = JsonUtility.FromJson<CardSaveData>(saveDataJson);
+		SetFlippedState(saveData.isFlipped);
+		SetImageSprite(saveData.assignedImage);
+	}
+
+	public void SetFlippedState(bool toFlipped) {
+		isFlipped = toFlipped;
+		flippedObj.SetActive(toFlipped);
+		unflippedObj.SetActive(!toFlipped);
 	}
 
 	/// <summary>
@@ -48,11 +61,23 @@ public class Card : MonoBehaviour, IPointerClickHandler
 		backImage.sprite = sprite;
 	}
 
-	public bool DoesImageMatch(Sprite sprite) => sprite == assignedImage;
+	public bool CheckMatch(Card otherCard) => otherCard.assignedImage == assignedImage;
 
-
+	/// <summary>
+	/// Implements the IPointerClickHandler interface. Calls an event on click
+	/// </summary>
 	public void OnPointerClick(PointerEventData eventData) {
-		if (IsFlipped) return;
+		if (isFlipped) return;
 		OnClicked?.Invoke(this);
 	}
+
+
+	public string GetSaveData() {
+		CardSaveData data = new CardSaveData() {
+			isFlipped = isFlipped,
+			assignedImage = assignedImage
+		};
+		return JsonUtility.ToJson(data);
+	}
+
 }

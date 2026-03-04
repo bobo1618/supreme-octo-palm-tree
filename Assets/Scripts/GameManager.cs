@@ -9,9 +9,12 @@ public class GameManager : MonoBehaviour
 	[SerializeField] List<Sprite> cardSprites;
 	[SerializeField] int gridRowCount, gridColumnCount;
 	[SerializeField] GridLayoutGroup cardGrid;
-	[SerializeField] float initialCardShowTime = 0;
+	[SerializeField] float initialCardShowTime = 2f, unflipDelay = 1f, victoryDelay = 1f;
 
 	List<Card> curCards = new List<Card>();
+	Card lastClickedCard = null;
+	int matchCount = 0, matchTarget;
+	int curScore;
 
 	private void Start() {
 		// Remove invalid sprites
@@ -20,6 +23,8 @@ public class GameManager : MonoBehaviour
 		StartCoroutine(Initialize());
 	}
 
+
+	#region SETUP
 
 	IEnumerator Initialize() {
 		if (cardSprites.Count == 0) {
@@ -42,6 +47,9 @@ public class GameManager : MonoBehaviour
 			Debug.LogError("Need a grid layout that can fit at least 2 cards");
 			yield break;
 		}
+
+		matchCount = 0;
+		matchTarget = cardCount / 2;
 
 
 		//============ CARD GRID SETUP ===============
@@ -126,9 +134,56 @@ public class GameManager : MonoBehaviour
 		}
 	}
 
+	#endregion
+
+
+	#region GAMEPLAY
 
 	void OnCardClicked(Card clickedCard) {
-		if (!clickedCard) return;
-		print(clickedCard.name + " was clicked");
+		// Note: Flipped cards don't register clicks, but condition added just in case
+		if (!clickedCard || clickedCard.IsFlipped) return;
+
+		clickedCard.SetFlippedState(true);
+		AudioManager.PlaySFX(SFXType.FLIP);
+
+		// Is this the second card being matched?
+		if (lastClickedCard) {
+			// Does this card match the last clicked card?
+			bool isMatch = clickedCard.CheckMatch(lastClickedCard);
+			
+			if (isMatch) {
+				// Matches, check if game is over
+				matchCount++;
+				AudioManager.PlaySFX(SFXType.MATCH);
+
+				if (matchCount == matchTarget) {
+					// All cards matched, you're winner!
+					StartCoroutine(VictoryCR());
+				}
+			}
+			else {
+				// Doesn't match, unflip after delay
+				StartCoroutine(UnflipCardCR(lastClickedCard, clickedCard));
+				AudioManager.PlaySFX(SFXType.UNMATCH);
+			}
+
+			lastClickedCard = null;
+		}
+		else {
+			lastClickedCard = clickedCard;
+		}
 	}
+
+	IEnumerator UnflipCardCR(params Card[] cards) {
+		yield return new WaitForSeconds(unflipDelay);
+		foreach (Card card in cards) card.SetFlippedState(false);
+	}
+
+	IEnumerator VictoryCR() {
+		yield return new WaitForSeconds(victoryDelay);
+		print("YOU'RE WINNER!");
+		AudioManager.PlaySFX(SFXType.WIN);
+	}
+
+	#endregion
 }
