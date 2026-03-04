@@ -14,7 +14,7 @@ public class CardSaveData {
 public class Card : MonoBehaviour, IPointerClickHandler
 {
 	[SerializeField] Image cardImage, backImage;
-	[SerializeField] GameObject flippedObj, unflippedObj;
+	[SerializeField] GameObject flippedObj, unflippedObj, displayHolder;
 
 	public bool IsFlipped => isFlipped;
 
@@ -25,24 +25,32 @@ public class Card : MonoBehaviour, IPointerClickHandler
 	bool isFlipped;
 
 	private void Awake() {
-		if (cardImage) cardImage.gameObject.SetActive(false);
+		if (displayHolder) displayHolder.SetActive(false);
 	}
 
+	// Initialize card without displaying it. Call Display() to show card
 	public void Initialize(bool startFlipped) {
 		// Add other initialization processes if needed
 		SetFlippedState(startFlipped);
+		displayHolder.SetActive(false);
 	}
 
 	public void Initialize(string saveDataJson) {
 		CardSaveData saveData = JsonUtility.FromJson<CardSaveData>(saveDataJson);
 		SetFlippedState(saveData.isFlipped);
 		SetImageSprite(saveData.assignedImage);
+		displayHolder.SetActive(false);
 	}
 
 	public void SetFlippedState(bool toFlipped) {
 		isFlipped = toFlipped;
 		flippedObj.SetActive(toFlipped);
 		unflippedObj.SetActive(!toFlipped);
+	}
+
+	// Actually show the card
+	public void Display() {
+		displayHolder.SetActive(true);
 	}
 
 	/// <summary>
@@ -67,7 +75,7 @@ public class Card : MonoBehaviour, IPointerClickHandler
 	/// Implements the IPointerClickHandler interface. Calls an event on click
 	/// </summary>
 	public void OnPointerClick(PointerEventData eventData) {
-		if (isFlipped) return;
+		if (isFlipped || !displayHolder.activeSelf) return;
 		OnClicked?.Invoke(this);
 	}
 

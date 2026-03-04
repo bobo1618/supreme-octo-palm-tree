@@ -1,32 +1,62 @@
 using System.Collections;
 using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
 public class GameManager : MonoBehaviour
 {
+	[Header("Grid specs")]
+	[SerializeField] GridLayoutGroup cardGrid;
+	[SerializeField] int gridColumnCount, gridRowCount;
+
+	[Header("Gameplay tweaks")]
+	[SerializeField] int pointsPerMatch;
+	[SerializeField] int pointsPerCombo;
+	[SerializeField] float initialCardDisplayTime = 1f, initialCardShowTime = 2f, unflipDelay = 1f, resultsDelay = 1f;
+
+	[Header("UI")]
+	[SerializeField] Button startButton;
+	[SerializeField] Button retryButton;
+	[SerializeField] TMP_Text scoreText, comboText;
+	[SerializeField] Image winUI, loseUI;
+
+	[Header("Assets")]
 	[SerializeField] Card cardPrefab;
 	[SerializeField] List<Sprite> cardSprites;
-	[SerializeField] int gridRowCount, gridColumnCount;
-	[SerializeField] GridLayoutGroup cardGrid;
-	[SerializeField] float initialCardShowTime = 2f, unflipDelay = 1f, victoryDelay = 1f;
 
 	List<Card> curCards = new List<Card>();
 	Card lastClickedCard = null;
 	int matchCount = 0, matchTarget;
-	int curScore;
+	int curScore, curCombo;
+
+	bool isInitializing;
 
 	private void Start() {
 		// Remove invalid sprites
 		cardSprites.RemoveAll(sprite => !sprite);
+		if (winUI) winUI.gameObject.SetActive(false);
+		if (loseUI) loseUI.gameObject.SetActive(false);
 
-		StartCoroutine(Initialize());
+		if (startButton)
+			startButton.onClick.AddListener(() => StartCoroutine(Initialize()));
+		else
+			StartCoroutine(Initialize());
+
+		if (retryButton) {
+			retryButton.onClick.AddListener(() => StartCoroutine(Initialize()));
+			retryButton.gameObject.SetActive(false);
+		}
 	}
 
 
 	#region SETUP
 
 	IEnumerator Initialize() {
+		isInitializing = true;
+		if (startButton) startButton.gameObject.SetActive(false);
+		if (retryButton) retryButton.gameObject.SetActive(false);
+
 		if (cardSprites.Count == 0) {
 			Debug.LogError("At least one card image required");
 			yield break;
@@ -40,7 +70,7 @@ public class GameManager : MonoBehaviour
 		int cardCount = gridRowCount * gridColumnCount;
 
 		// Take note if our grid has an odd number of cells, and ensure our card count is even
-		bool cellCountIsOdd = cardCount % 2 != 0;
+		bool cellCountIsOdd = cardCount % 2 != 0; // This will be used later to insert a blank space in the grid
 		if (cellCountIsOdd) cardCount--;
 		
 		if (!cardGrid || cardCount < 2) {
@@ -48,8 +78,12 @@ public class GameManager : MonoBehaviour
 			yield break;
 		}
 
+		// Initialize counters
 		matchCount = 0;
 		matchTarget = cardCount / 2;
+		curScore = 0;
+		curCombo = 0;
+		UpdateUI();
 
 
 		//============ CARD GRID SETUP ===============
@@ -60,12 +94,15 @@ public class GameManager : MonoBehaviour
 			curCards.Clear();
 
 			// Clear any children of the grid, including blank cards
-			var children = cardGrid.GetComponentsInChildren<GameObject>(true);
+			var children = cardGrid.GetComponentsInChildren<Transform>(true);
 			foreach (var child in children) {
-				if (child != cardGrid.gameObject) Destroy(child);
+				if (child != cardGrid.transform) Destroy(child.gameObject);
 			}
 			yield return null;
 		}
+
+		if (winUI) winUI.gameObject.SetActive(false);
+		if (loseUI) loseUI.gameObject.SetActive(false);
 
 		// Set up the grid to follow the defined width and height
 		cardGrid.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
@@ -123,8 +160,14 @@ public class GameManager : MonoBehaviour
 			Card newCard = Instantiate(cardPrefab, cardGrid.transform);
 			newCard.SetImageSprite(cardSprites[imageIndicesToUse[i]]);
 			newCard.Initialize(showCardsAtStart);
-			newCard.OnClicked += OnCardClicked;
+			newCard.OnClicked += OnCardClicked; // Register card click to this function
 			curCards.Add(newCard);
+		}
+
+		float cardDisplayInterval = initialCardDisplayTime / cardCount;
+		foreach (var card in curCards) {
+			card.Display();
+			yield return new WaitForSeconds(cardDisplayInterval);
 		}
 
 		// Unflip cards after initial interval
@@ -132,6 +175,8 @@ public class GameManager : MonoBehaviour
 			yield return new WaitForSeconds(initialCardShowTime);
 			curCards.ForEach(card => card.SetFlippedState(false));
 		}
+
+		isInitializing = false;
 	}
 
 	#endregion
@@ -140,6 +185,8 @@ public class GameManager : MonoBehaviour
 	#region GAMEPLAY
 
 	void OnCardClicked(Card clickedCard) {
+		if (isInitializing) return;
+
 		// Note: Flipped cards don't register clicks, but condition added just in case
 		if (!clickedCard || clickedCard.IsFlipped) return;
 
@@ -152,21 +199,25 @@ public class GameManager : MonoBehaviour
 			bool isMatch = clickedCard.CheckMatch(lastClickedCard);
 			
 			if (isMatch) {
-				// Matches, check if game is over
 				matchCount++;
+				curScore += pointsPerMatch + (curCombo * pointsPerCombo);
+				curCombo++;
 				AudioManager.PlaySFX(SFXType.MATCH);
 
+				// Matches, check if game is over
 				if (matchCount == matchTarget) {
 					// All cards matched, you're winner!
-					StartCoroutine(VictoryCR());
+					StartCoroutine(ResultsUI(true));
 				}
 			}
 			else {
 				// Doesn't match, unflip after delay
 				StartCoroutine(UnflipCardCR(lastClickedCard, clickedCard));
 				AudioManager.PlaySFX(SFXType.UNMATCH);
+				curCombo = 0;
 			}
 
+			UpdateUI();
 			lastClickedCard = null;
 		}
 		else {
@@ -179,10 +230,17 @@ public class GameManager : MonoBehaviour
 		foreach (Card card in cards) card.SetFlippedState(false);
 	}
 
-	IEnumerator VictoryCR() {
-		yield return new WaitForSeconds(victoryDelay);
-		print("YOU'RE WINNER!");
-		AudioManager.PlaySFX(SFXType.WIN);
+	IEnumerator ResultsUI(bool isWin) {
+		yield return new WaitForSeconds(resultsDelay);
+		AudioManager.PlaySFX(isWin ? SFXType.WIN : SFXType.LOSE);
+		GameObject uiToShow = isWin ? winUI.gameObject : loseUI.gameObject;
+		if (uiToShow) uiToShow.SetActive(true);
+		if (retryButton) retryButton.gameObject.SetActive(true);
+	}
+
+	void UpdateUI() {
+		if (scoreText) scoreText.text = curScore.ToString();
+		if (comboText) comboText.text = curCombo.ToString();
 	}
 
 	#endregion
