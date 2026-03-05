@@ -11,26 +11,28 @@ public class GameManager : MonoBehaviour
 	[SerializeField] int gridColumnCount, gridRowCount;
 
 	[Header("Gameplay tweaks")]
-	[SerializeField] int pointsPerMatch;
-	[SerializeField] int pointsPerCombo;
-	[SerializeField] float initialCardDisplayTime = 1f, initialCardShowTime = 2f, unflipDelay = 1f, resultsDelay = 1f;
+	[SerializeField] float timeGiven = 30;
+	[SerializeField] int pointsPerMatch, pointsPerCombo;
+	// If cardPreviewTime is set to 0, the cards will start face down
+	[SerializeField] float cardAppearTime = 1f, cardPreviewTime = 2f, unflipDelay = 1f, resultsDelay = 1f;
 
 	[Header("UI")]
 	[SerializeField] Button startButton;
 	[SerializeField] Button retryButton;
-	[SerializeField] TMP_Text scoreText, comboText;
+	[SerializeField] TMP_Text scoreText, comboText, timerText;
 	[SerializeField] Image winUI, loseUI;
 
 	[Header("Assets")]
 	[SerializeField] Card cardPrefab;
 	[SerializeField] List<Sprite> cardSprites;
 
+	float timerValue;
 	List<Card> curCards = new List<Card>();
 	Card lastClickedCard = null;
 	int matchCount = 0, matchTarget;
 	int curScore, curCombo;
 
-	bool isInitializing;
+	bool isInitializing, isGameOver;
 
 	private void Start() {
 		// Remove invalid sprites
@@ -47,6 +49,9 @@ public class GameManager : MonoBehaviour
 			retryButton.onClick.AddListener(() => StartCoroutine(Initialize()));
 			retryButton.gameObject.SetActive(false);
 		}
+
+		isInitializing = true;
+		timerValue = timeGiven;
 	}
 
 
@@ -54,6 +59,9 @@ public class GameManager : MonoBehaviour
 
 	IEnumerator Initialize() {
 		isInitializing = true;
+		isGameOver = false;
+		timerValue = timeGiven;
+
 		if (startButton) startButton.gameObject.SetActive(false);
 		if (retryButton) retryButton.gameObject.SetActive(false);
 
@@ -131,16 +139,13 @@ public class GameManager : MonoBehaviour
 			// Choose a random image
 			int indexToUse = Random.Range(0, imageIndexPool.Count);
 
-			// Add a matching pair
-			imageIndicesToUse.Add(imageIndexPool[indexToUse]);
-			imageIndicesToUse.Add(imageIndexPool[indexToUse]);
+			// Add a matching pair at random positions
+			for (int i = 0; i < 2; i++)
+				imageIndicesToUse.Insert(Random.Range(0, imageIndicesToUse.Count), imageIndexPool[indexToUse]);
 
 			// Remove the index from the pool
 			imageIndexPool.RemoveAt(indexToUse);
 		}
-
-		// Shuffle the cards by using a random sort
-		imageIndicesToUse.Sort((x, y) => Random.value > 0.5f ? 1 : -1);
 
 
 		//============ INSTANTIATE THE CARDS ===============
@@ -149,7 +154,7 @@ public class GameManager : MonoBehaviour
 
 		// Add a blank card in the middle if the total is odd
 		int addBlankCardAt = cellCountIsOdd ? cardCount / 2 : -1;
-		bool showCardsAtStart = initialCardShowTime > 0;
+		bool showCardsAtStart = cardPreviewTime > 0;
 
 		for (int i = 0; i < imageIndicesToUse.Count; i++) {
 			if (i == addBlankCardAt) {
@@ -164,19 +169,21 @@ public class GameManager : MonoBehaviour
 			curCards.Add(newCard);
 		}
 
-		float cardDisplayInterval = initialCardDisplayTime / cardCount;
+		float cardDisplayInterval = cardAppearTime / cardCount;
 		foreach (var card in curCards) {
-			card.Display();
+			card.SetDisplay(true);
+			AudioManager.PlaySFX(SFXType.APPEAR);
 			yield return new WaitForSeconds(cardDisplayInterval);
 		}
 
 		// Unflip cards after initial interval
 		if (showCardsAtStart) {
-			yield return new WaitForSeconds(initialCardShowTime);
+			yield return new WaitForSeconds(cardPreviewTime);
 			curCards.ForEach(card => card.SetFlippedState(false));
 		}
 
 		isInitializing = false;
+		AudioManager.SetMusic(true);
 	}
 
 	#endregion
@@ -185,7 +192,7 @@ public class GameManager : MonoBehaviour
 	#region GAMEPLAY
 
 	void OnCardClicked(Card clickedCard) {
-		if (isInitializing) return;
+		if (isInitializing || isGameOver) return;
 
 		// Note: Flipped cards don't register clicks, but condition added just in case
 		if (!clickedCard || clickedCard.IsFlipped) return;
@@ -202,18 +209,19 @@ public class GameManager : MonoBehaviour
 				matchCount++;
 				curScore += pointsPerMatch + (curCombo * pointsPerCombo);
 				curCombo++;
-				AudioManager.PlaySFX(SFXType.MATCH);
+				AudioManager.PlaySFX(SFXType.MATCH, unflipDelay);
 
 				// Matches, check if game is over
 				if (matchCount == matchTarget) {
 					// All cards matched, you're winner!
-					StartCoroutine(ResultsUI(true));
+					isGameOver = true;
+					StartCoroutine(ResultsUI(true, resultsDelay));
 				}
 			}
 			else {
 				// Doesn't match, unflip after delay
 				StartCoroutine(UnflipCardCR(lastClickedCard, clickedCard));
-				AudioManager.PlaySFX(SFXType.UNMATCH);
+				AudioManager.PlaySFX(SFXType.MISMATCH, unflipDelay);
 				curCombo = 0;
 			}
 
@@ -230,17 +238,35 @@ public class GameManager : MonoBehaviour
 		foreach (Card card in cards) card.SetFlippedState(false);
 	}
 
-	IEnumerator ResultsUI(bool isWin) {
-		yield return new WaitForSeconds(resultsDelay);
-		AudioManager.PlaySFX(isWin ? SFXType.WIN : SFXType.LOSE);
+	IEnumerator ResultsUI(bool isWin, float delayTime) {
+		yield return new WaitForSeconds(delayTime);
+		foreach (var card in curCards) card.SetDisplay(false);
 		GameObject uiToShow = isWin ? winUI.gameObject : loseUI.gameObject;
 		if (uiToShow) uiToShow.SetActive(true);
 		if (retryButton) retryButton.gameObject.SetActive(true);
+		AudioManager.PlaySFX(isWin ? SFXType.WIN : SFXType.LOSE);
+		AudioManager.SetMusic(false);
 	}
 
 	void UpdateUI() {
 		if (scoreText) scoreText.text = curScore.ToString();
 		if (comboText) comboText.text = curCombo.ToString();
+	}
+
+	private void Update() {
+		// Update the timer and end the game if it hits 0
+		if (!isInitializing && !isGameOver && timerValue > 0) {
+			timerValue -= Time.deltaTime;
+			if (timerValue <= 0) {
+				isGameOver = true;
+				StartCoroutine(ResultsUI(false, 0));
+			}
+		}
+
+		if (timerText) {
+			var timeSpan = System.TimeSpan.FromSeconds(timerValue);
+			timerText.text = timeSpan.ToString(@"mm\:ss");
+		}
 	}
 
 	#endregion

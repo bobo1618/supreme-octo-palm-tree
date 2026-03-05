@@ -49,8 +49,8 @@ public class Card : MonoBehaviour, IPointerClickHandler
 	}
 
 	// Actually show the card
-	public void Display() {
-		displayHolder.SetActive(true);
+	public void SetDisplay(bool toOn) {
+		displayHolder.SetActive(toOn);
 	}
 
 	/// <summary>
