@@ -18,7 +18,7 @@ public class GameManager : MonoBehaviour
 
 	[Header("UI")]
 	[SerializeField] Button startButton;
-	[SerializeField] Button retryButton;
+	[SerializeField] Button retryButton, quitButton;
 	[SerializeField] TMP_Text scoreText, comboText, timerText;
 	[SerializeField] Image winUI, loseUI;
 
@@ -26,13 +26,15 @@ public class GameManager : MonoBehaviour
 	[SerializeField] Card cardPrefab;
 	[SerializeField] List<Sprite> cardSprites;
 
-	float timerValue;
+	float timeLeft;
 	List<Card> curCards = new List<Card>();
 	Card lastClickedCard = null;
 	int matchCount = 0, matchTarget;
-	int curScore, curCombo;
+	int curScore, curCombo, curRowCount, curColumnCount;
 
-	bool isInitializing, isGameOver;
+	bool isInitializing, isPlaying, isGameOver;
+
+	const string SAVE_PREF = "Save data";
 
 	private void Start() {
 		// Remove invalid sprites
@@ -50,8 +52,11 @@ public class GameManager : MonoBehaviour
 			retryButton.gameObject.SetActive(false);
 		}
 
+		if (quitButton)
+			quitButton.onClick.AddListener(QuitGame);
+
 		isInitializing = true;
-		timerValue = timeGiven;
+		timeLeft = timeGiven;
 	}
 
 
@@ -60,7 +65,6 @@ public class GameManager : MonoBehaviour
 	IEnumerator Initialize() {
 		isInitializing = true;
 		isGameOver = false;
-		timerValue = timeGiven;
 
 		if (startButton) startButton.gameObject.SetActive(false);
 		if (retryButton) retryButton.gameObject.SetActive(false);
@@ -75,7 +79,33 @@ public class GameManager : MonoBehaviour
 			yield break;
 		}
 
-		int cardCount = gridRowCount * gridColumnCount;
+		curRowCount = gridRowCount;
+		curColumnCount = gridColumnCount;
+		SaveDataHolder savedData = null;
+
+		// Check if save data exists
+		if (PlayerPrefs.HasKey(SAVE_PREF)) {
+			try {
+				savedData = JsonUtility.FromJson<SaveDataHolder>(PlayerPrefs.GetString(SAVE_PREF));
+			}
+			catch {
+				Debug.LogError("Unable to load save data");
+			}
+			PlayerPrefs.DeleteKey(SAVE_PREF); // Delete save data after loading
+		}
+		else
+			Debug.Log("No save data found. Starting a new game");
+
+		if (savedData != null) {
+			curRowCount = savedData.gridRowCount;
+			curColumnCount = savedData.gridColumnCount;
+			timeLeft = savedData.timeLeft;
+		}
+		else {
+			timeLeft = timeGiven;
+		}
+
+		int cardCount = curRowCount * curColumnCount;
 
 		// Take note if our grid has an odd number of cells, and ensure our card count is even
 		bool cellCountIsOdd = cardCount % 2 != 0; // This will be used later to insert a blank space in the grid
@@ -87,11 +117,20 @@ public class GameManager : MonoBehaviour
 		}
 
 		// Initialize counters
-		matchCount = 0;
 		matchTarget = cardCount / 2;
-		curScore = 0;
-		curCombo = 0;
-		UpdateUI();
+
+		if (savedData != null) {
+			matchCount = savedData.matchCount;
+			curScore = savedData.score;
+			curCombo = savedData.combo;
+		}
+		else {
+			matchCount = 0;
+			curScore = 0;
+			curCombo = 0;
+		}
+
+		UpdateScoreUI();
 
 
 		//============ CARD GRID SETUP ===============
@@ -114,14 +153,14 @@ public class GameManager : MonoBehaviour
 
 		// Set up the grid to follow the defined width and height
 		cardGrid.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
-		cardGrid.constraintCount = gridColumnCount;
+		cardGrid.constraintCount = curColumnCount;
 
 		// Calculate the required cell size
 		RectTransform gridRect = cardGrid.GetComponent<RectTransform>();
 		yield return null; // Wait one update loop for the grid to initialize to its proper size
 		Vector2 cellSize = gridRect.rect.size;
-		cellSize.x = (cellSize.x / gridColumnCount) - (cardGrid.spacing.x + 5f); // 5f buffer just in case
-		cellSize.y = (cellSize.y / gridRowCount) - (cardGrid.spacing.y + 5f);
+		cellSize.x = (cellSize.x / curColumnCount) - (cardGrid.spacing.x + 5f); // 5f buffer just in case
+		cellSize.y = (cellSize.y / curRowCount) - (cardGrid.spacing.y + 5f);
 		cardGrid.cellSize = cellSize;
 
 
@@ -130,21 +169,24 @@ public class GameManager : MonoBehaviour
 		List<int> imageIndexPool = new List<int>(); // We'll pick randomly from this pool of image indices to decide which ones to use
 		List<int> imageIndicesToUse = new List<int>();
 
-		while (imageIndicesToUse.Count < cardCount) {
-			if (imageIndexPool.Count == 0) {
-				// Refill the index pool, in case we have more cards than image pairs
-				for (int i = 0; i < cardSprites.Count; i++) imageIndexPool.Add(i);
+		// Generate random set of cards if we aren't loading save data
+		if (savedData == null) {
+			while (imageIndicesToUse.Count < cardCount) {
+				if (imageIndexPool.Count == 0) {
+					// Refill the index pool, in case we have more cards than image pairs
+					for (int i = 0; i < cardSprites.Count; i++) imageIndexPool.Add(i);
+				}
+
+				// Choose a random image
+				int indexToUse = Random.Range(0, imageIndexPool.Count);
+
+				// Add a matching pair at random positions
+				for (int i = 0; i < 2; i++)
+					imageIndicesToUse.Insert(Random.Range(0, imageIndicesToUse.Count), imageIndexPool[indexToUse]);
+
+				// Remove the index from the pool
+				imageIndexPool.RemoveAt(indexToUse);
 			}
-
-			// Choose a random image
-			int indexToUse = Random.Range(0, imageIndexPool.Count);
-
-			// Add a matching pair at random positions
-			for (int i = 0; i < 2; i++)
-				imageIndicesToUse.Insert(Random.Range(0, imageIndicesToUse.Count), imageIndexPool[indexToUse]);
-
-			// Remove the index from the pool
-			imageIndexPool.RemoveAt(indexToUse);
 		}
 
 
@@ -156,17 +198,31 @@ public class GameManager : MonoBehaviour
 		int addBlankCardAt = cellCountIsOdd ? cardCount / 2 : -1;
 		bool showCardsAtStart = cardPreviewTime > 0;
 
-		for (int i = 0; i < imageIndicesToUse.Count; i++) {
-			if (i == addBlankCardAt) {
+		void CheckAndAddBlankCard(int atIndex) {
+			if (atIndex == addBlankCardAt) {
 				GameObject blankObj = new GameObject("Blank", typeof(RectTransform));
 				blankObj.transform.parent = cardGrid.transform;
 			}
+		}
 
-			Card newCard = Instantiate(cardPrefab, cardGrid.transform);
-			newCard.SetImageSprite(cardSprites[imageIndicesToUse[i]]);
-			newCard.Initialize(showCardsAtStart);
-			newCard.OnClicked += OnCardClicked; // Register card click to this function
-			curCards.Add(newCard);
+		if (savedData == null) {
+			for (int i = 0; i < imageIndicesToUse.Count; i++) {
+				CheckAndAddBlankCard(i);
+				Card newCard = Instantiate(cardPrefab, cardGrid.transform);
+				newCard.SetImageSprite(cardSprites[imageIndicesToUse[i]]);
+				newCard.Initialize(showCardsAtStart);
+				newCard.OnClicked += OnCardClicked; // Register card click to this function
+				curCards.Add(newCard);
+			}
+		}
+		else {
+			for (int i = 0; i < savedData.cardSaveDatas.Count; i++) {
+				CheckAndAddBlankCard(i);
+				Card newCard = Instantiate(cardPrefab, cardGrid.transform);
+				newCard.InitializeFromSaveData(savedData.cardSaveDatas[i]);
+				newCard.OnClicked += OnCardClicked; // Register card click to this function
+				curCards.Add(newCard);
+			}
 		}
 
 		float cardDisplayInterval = cardAppearTime / cardCount;
@@ -179,10 +235,13 @@ public class GameManager : MonoBehaviour
 		// Unflip cards after initial interval
 		if (showCardsAtStart) {
 			yield return new WaitForSeconds(cardPreviewTime);
-			curCards.ForEach(card => card.SetFlippedState(false));
+			// If this is a new game, turn all cards face down
+			if (savedData == null)
+				curCards.ForEach(card => card.SetFlipped(false));
 		}
 
 		isInitializing = false;
+		isPlaying = true;
 		AudioManager.SetMusic(true);
 	}
 
@@ -197,7 +256,7 @@ public class GameManager : MonoBehaviour
 		// Note: Flipped cards don't register clicks, but condition added just in case
 		if (!clickedCard || clickedCard.IsFlipped) return;
 
-		clickedCard.SetFlippedState(true);
+		clickedCard.SetFlipped(true);
 		AudioManager.PlaySFX(SFXType.FLIP);
 
 		// Is this the second card being matched?
@@ -215,6 +274,7 @@ public class GameManager : MonoBehaviour
 				if (matchCount == matchTarget) {
 					// All cards matched, you're winner!
 					isGameOver = true;
+					isPlaying = false;
 					StartCoroutine(ResultsUI(true, resultsDelay));
 				}
 			}
@@ -224,7 +284,7 @@ public class GameManager : MonoBehaviour
 				curCombo = 0;
 			}
 
-			UpdateUI();
+			UpdateScoreUI();
 			lastClickedCard = null;
 		}
 		else {
@@ -240,7 +300,7 @@ public class GameManager : MonoBehaviour
 
 	IEnumerator MismatchCardsCR(params Card[] cards) {
 		yield return new WaitForSeconds(unflipDelay);
-		foreach (Card card in cards) card.SetFlippedState(false);
+		foreach (Card card in cards) card.SetFlipped(false);
 		AudioManager.PlaySFX(SFXType.MISMATCH);
 	}
 
@@ -254,23 +314,42 @@ public class GameManager : MonoBehaviour
 		AudioManager.SetMusic(false);
 	}
 
-	void UpdateUI() {
+	void UpdateScoreUI() {
 		if (scoreText) scoreText.text = curScore.ToString();
 		if (comboText) comboText.text = curCombo.ToString();
 	}
 
+	void QuitGame() {
+		if (isPlaying) {
+			// Save the current game state
+			var saveData = new SaveDataHolder() {
+				timeLeft = timeLeft,
+				matchCount = matchCount,
+				score = curScore,
+				combo = curCombo,
+				gridColumnCount = curColumnCount,
+				gridRowCount = curRowCount,
+				cardSaveDatas = curCards.ConvertAll(card => card.GetSaveData())
+			};
+			PlayerPrefs.SetString(SAVE_PREF, JsonUtility.ToJson(saveData));
+		}
+
+		Application.Quit();
+	}
+
 	private void Update() {
 		// Update the timer and end the game if it hits 0
-		if (!isInitializing && !isGameOver && timerValue > 0) {
-			timerValue -= Time.deltaTime;
-			if (timerValue <= 0) {
+		if (isPlaying && timeLeft > 0) {
+			timeLeft -= Time.deltaTime;
+			if (timeLeft <= 0) {
 				isGameOver = true;
+				isPlaying = false;
 				StartCoroutine(ResultsUI(false, 0));
 			}
 		}
 
 		if (timerText) {
-			var timeSpan = System.TimeSpan.FromSeconds(timerValue);
+			var timeSpan = System.TimeSpan.FromSeconds(timeLeft);
 			timerText.text = timeSpan.ToString(@"mm\:ss");
 		}
 	}

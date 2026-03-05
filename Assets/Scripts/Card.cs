@@ -5,11 +5,6 @@ using UnityEngine.EventSystems;
 using UnityEngine.Rendering;
 using UnityEngine.UI;
 
-[System.Serializable]
-public class CardSaveData {
-	public Sprite assignedImage;
-	public bool isFlipped;
-}
 
 public class Card : MonoBehaviour, IPointerClickHandler
 {
@@ -27,28 +22,26 @@ public class Card : MonoBehaviour, IPointerClickHandler
 	public OnClickEvent OnClicked;
 
 	Sprite assignedImage;
-	bool isFlipped, isDisplaying = false;
+	bool isFlipped, isMatched, isDisplaying = false;
 
 	private void Awake() {
-		//if (displayHolder) displayHolder.SetActive(false);
 		if (!animator) animator = GetComponent<Animator>();
 	}
 
 	// Initialize card without displaying it. Call Display() to show card
 	public void Initialize(bool startFlipped) {
-		// Add other initialization processes if needed
-		SetFlippedState(startFlipped);
+		SetFlipped(startFlipped);
 		SetDisplay(false);
 	}
 
-	public void Initialize(string saveDataJson) {
-		CardSaveData saveData = JsonUtility.FromJson<CardSaveData>(saveDataJson);
-		SetFlippedState(saveData.isFlipped);
+	public void InitializeFromSaveData(CardSaveData saveData) {
 		SetImageSprite(saveData.assignedImage);
+		SetFlipped(saveData.isMatched);
+		SetMatched(saveData.isMatched);
 		SetDisplay(false);
 	}
 
-	public void SetFlippedState(bool toFlipped) {
+	public void SetFlipped(bool toFlipped) {
 		isFlipped = toFlipped;
 		if (animator) animator.SetBool(flipBoolParam, toFlipped);
 	}
@@ -59,8 +52,9 @@ public class Card : MonoBehaviour, IPointerClickHandler
 		if (animator) animator.SetBool(appearBoolParam, toOn);
 	}
 
-	public void SetMatched(bool isMatched) {
-		if (animator) animator.SetBool(matchBoolParam, isMatched);
+	public void SetMatched(bool toOn) {
+		isMatched = toOn;
+		if (animator) animator.SetBool(matchBoolParam, toOn);
 	}
 
 	/// <summary>
@@ -90,12 +84,12 @@ public class Card : MonoBehaviour, IPointerClickHandler
 	}
 
 
-	public string GetSaveData() {
+	public CardSaveData GetSaveData() {
 		CardSaveData data = new CardSaveData() {
-			isFlipped = isFlipped,
+			isMatched = isMatched,
 			assignedImage = assignedImage
 		};
-		return JsonUtility.ToJson(data);
+		return data;
 	}
 
 }
