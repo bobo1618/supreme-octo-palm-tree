@@ -13,8 +13,13 @@ public class CardSaveData {
 
 public class Card : MonoBehaviour, IPointerClickHandler
 {
+	[Header("Component references")]
 	[SerializeField] Image cardImage, backImage;
-	[SerializeField] GameObject flippedObj, unflippedObj, displayHolder;
+	[SerializeField] Animator animator;
+
+	[Header("Animation parameters and timings")]
+	[SerializeField] string appearBoolParam, flipBoolParam, matchBoolParam;
+	[SerializeField] float flipAnimTime;
 
 	public bool IsFlipped => isFlipped;
 
@@ -22,35 +27,40 @@ public class Card : MonoBehaviour, IPointerClickHandler
 	public OnClickEvent OnClicked;
 
 	Sprite assignedImage;
-	bool isFlipped;
+	bool isFlipped, isDisplaying = false;
 
 	private void Awake() {
-		if (displayHolder) displayHolder.SetActive(false);
+		//if (displayHolder) displayHolder.SetActive(false);
+		if (!animator) animator = GetComponent<Animator>();
 	}
 
 	// Initialize card without displaying it. Call Display() to show card
 	public void Initialize(bool startFlipped) {
 		// Add other initialization processes if needed
 		SetFlippedState(startFlipped);
-		displayHolder.SetActive(false);
+		SetDisplay(false);
 	}
 
 	public void Initialize(string saveDataJson) {
 		CardSaveData saveData = JsonUtility.FromJson<CardSaveData>(saveDataJson);
 		SetFlippedState(saveData.isFlipped);
 		SetImageSprite(saveData.assignedImage);
-		displayHolder.SetActive(false);
+		SetDisplay(false);
 	}
 
 	public void SetFlippedState(bool toFlipped) {
 		isFlipped = toFlipped;
-		flippedObj.SetActive(toFlipped);
-		unflippedObj.SetActive(!toFlipped);
+		if (animator) animator.SetBool(flipBoolParam, toFlipped);
 	}
 
-	// Actually show the card
+	// Show or hide the entire card
 	public void SetDisplay(bool toOn) {
-		displayHolder.SetActive(toOn);
+		isDisplaying = toOn;
+		if (animator) animator.SetBool(appearBoolParam, toOn);
+	}
+
+	public void SetMatched(bool isMatched) {
+		if (animator) animator.SetBool(matchBoolParam, isMatched);
 	}
 
 	/// <summary>
@@ -75,7 +85,7 @@ public class Card : MonoBehaviour, IPointerClickHandler
 	/// Implements the IPointerClickHandler interface. Calls an event on click
 	/// </summary>
 	public void OnPointerClick(PointerEventData eventData) {
-		if (isFlipped || !displayHolder.activeSelf) return;
+		if (isFlipped || !isDisplaying) return;
 		OnClicked?.Invoke(this);
 	}
 

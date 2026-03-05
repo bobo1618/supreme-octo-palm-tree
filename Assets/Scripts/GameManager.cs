@@ -209,7 +209,7 @@ public class GameManager : MonoBehaviour
 				matchCount++;
 				curScore += pointsPerMatch + (curCombo * pointsPerCombo);
 				curCombo++;
-				AudioManager.PlaySFX(SFXType.MATCH, unflipDelay);
+				StartCoroutine(MatchCardsCR(lastClickedCard, clickedCard));
 
 				// Matches, check if game is over
 				if (matchCount == matchTarget) {
@@ -220,8 +220,7 @@ public class GameManager : MonoBehaviour
 			}
 			else {
 				// Doesn't match, unflip after delay
-				StartCoroutine(UnflipCardCR(lastClickedCard, clickedCard));
-				AudioManager.PlaySFX(SFXType.MISMATCH, unflipDelay);
+				StartCoroutine(MismatchCardsCR(lastClickedCard, clickedCard));
 				curCombo = 0;
 			}
 
@@ -233,9 +232,16 @@ public class GameManager : MonoBehaviour
 		}
 	}
 
-	IEnumerator UnflipCardCR(params Card[] cards) {
+	IEnumerator MatchCardsCR(params Card[] cards) {
+		yield return new WaitForSeconds(unflipDelay);
+		foreach (Card card in cards) card.SetMatched(true);
+		AudioManager.PlaySFX(SFXType.MATCH);
+	}
+
+	IEnumerator MismatchCardsCR(params Card[] cards) {
 		yield return new WaitForSeconds(unflipDelay);
 		foreach (Card card in cards) card.SetFlippedState(false);
+		AudioManager.PlaySFX(SFXType.MISMATCH);
 	}
 
 	IEnumerator ResultsUI(bool isWin, float delayTime) {
